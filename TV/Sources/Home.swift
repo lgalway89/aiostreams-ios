@@ -137,13 +137,7 @@ struct HomeView: View {
         let favourites: ItemsResult? = try? await client.get("/LiveTv/Channels", [
             "userId": userId, "IsFavorite": "true", "Limit": String(limit), "AddCurrentProgram": "true",
         ])
-        let recentIds = RecentChannels.ids
-        var recents: [Item] = []
-        if !recentIds.isEmpty {
-            let found: ItemsResult? = try? await client.get("/Items", ["userId": userId, "Ids": recentIds.joined(separator: ",")])
-            let byId = Dictionary((found?.items ?? []).map { ($0.id, $0) }) { first, _ in first }
-            recents = recentIds.compactMap { byId[$0] }.filter(\.isChannel)
-        }
+        let recents = await RecentChannels.current(client: client, userId: userId)
         var seen = Set<String>()
         let row = (favourites?.items ?? []) + recents
         channels = Array(row.filter { seen.insert($0.id).inserted }.prefix(limit))

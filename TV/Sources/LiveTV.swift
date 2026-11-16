@@ -14,6 +14,27 @@ enum RecentChannels {
     static func note(_ id: String) {
         UserDefaults.standard.set(Array(([id] + ids.filter { $0 != id }).prefix(limit)), forKey: key)
     }
+
+    /// Recent channels the server still lists, latest first. One it no longer lists, such as a
+    /// finished live event, is forgotten instead of lingering on Home and in Recent.
+    static func current(client: JellyfinClient, userId: String) async -> [Item] {
+        let recent = ids
+        guard !recent.isEmpty else { return [] }
+        async let listed: ItemsResult? = try? client.get("/LiveTv/Channels", [
+            "userId": userId, "Limit": "500", "EnableTotalRecordCount": "true",
+        ])
+        let found: ItemsResult? = try? await client.get("/Items", ["userId": userId, "Ids": recent.joined(separator: ",")])
+        let byId = Dictionary((found?.items ?? []).map { ($0.id, $0) }) { first, _ in first }
+        var items = recent.compactMap { byId[$0] }.filter(\.isChannel)
+        // Only prune against the whole list; an empty, failed or partial answer keeps everything.
+        let answer = await listed
+        if let all = answer?.items, !all.isEmpty, all.count >= (answer?.totalRecordCount ?? Int.max) {
+            let live = Set(all.map(\.id))
+            items = items.filter { live.contains($0.id) }
+            UserDefaults.standard.set(recent.filter { live.contains($0) }, forKey: key)
+        }
+        return items
+    }
 }
 
 struct LiveTVView: View {
@@ -164,10 +185,7 @@ struct LiveTVView: View {
         let asked = group
         var found: [Item] = []
         if group == ChannelGroup.recent {
-            let ids = RecentChannels.ids
-            let result: ItemsResult? = ids.isEmpty ? nil : try? await client.get("/Items", ["userId": userId, "Ids": ids.joined(separator: ",")])
-            let byId = Dictionary((result?.items ?? []).map { ($0.id, $0) }) { first, _ in first }
-            found = ids.compactMap { byId[$0] }.filter(\.isChannel)
+            found = await RecentChannels.current(client: client, userId: userId)
             total = found.count
         } else {
             let result: ItemsResult? = try? await client.get("/LiveTv/Channels", [
