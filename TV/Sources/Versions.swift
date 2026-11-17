@@ -20,7 +20,7 @@ struct VersionsView: View {
     private var item: Item { choice.item }
     private var resumeMs: Double? { (choice.startMs ?? 0) > 0 ? choice.startMs : nil }
     private var sources: [MediaSource] { info?.mediaSources ?? [] }
-    private var badges: VersionBadges { VersionBadges(prefs.custom["versionBadges"]) }
+    private var badges: VersionBadges { VersionBadges(prefs.tvCustom["versionBadges"] ?? prefs.custom["versionBadges"]) }
 
     var body: some View {
         ZStack {

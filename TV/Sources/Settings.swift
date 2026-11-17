@@ -12,6 +12,9 @@ final class Preferences: ObservableObject {
     @Published private(set) var custom: [String: String] = [:]
     /// The user's Jellyfin configuration, sent back whole when it changes.
     @Published private(set) var configuration: [String: Any] = [:]
+    /// Settings for this Apple TV only, under an id the web app never writes (it drops keys it
+    /// doesn't know when it saves its own): the version badges for the TV it's plugged into.
+    @Published private(set) var tvCustom: [String: String] = [:]
     @Published private(set) var loaded = false
 
     static let prefsId = "aiostreams-web"
@@ -27,6 +30,10 @@ final class Preferences: ObservableObject {
         if let prefs = try? await client.json("GET", "/DisplayPreferences/\(Self.prefsId)", ["client": Self.prefsId, "userId": userId]),
            let saved = prefs["CustomPrefs"] as? [String: Any] {
             custom = saved.compactMapValues { $0 as? String }
+        }
+        if let tv = try? await client.json("GET", "/DisplayPreferences/aiostreams-tv", ["client": "aiostreams-tv", "userId": userId]),
+           let saved = tv["CustomPrefs"] as? [String: Any] {
+            tvCustom = saved.compactMapValues { $0 as? String }
         }
         Theme.apply(accent: accentColor, background: backgroundColor)
         AppLanguage.apply(text("language", "auto"))
