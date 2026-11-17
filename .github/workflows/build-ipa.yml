@@ -15,6 +15,10 @@ on:
         description: Build with TrueHD Atmos and DTS:X height channels (may need patent licences; not for public releases)
         type: boolean
         default: false
+      ios:
+        description: Also build the iPhone app (a manual run otherwise builds only the Apple TV app)
+        type: boolean
+        default: false
       runner:
         description: Runner image (xcode-27 has Xcode 27.1, for iPhone Duo's full inner display)
         type: choice
@@ -39,6 +43,8 @@ jobs:
       AIOSTREAMS_REF: ${{ inputs.aiostreams_ref }}
       # Only a manual run can turn them on; pushes, tags and releases build without them.
       HEIGHT_CHANNELS: ${{ inputs.height_channels && 'on' || 'off' }}
+      # A manual run builds the iPhone app only when asked; pushes, PRs and tags build both.
+      IOS: ${{ (github.event_name != 'workflow_dispatch' || inputs.ios) && 'on' || 'off' }}
       # A tag build is the version its tag names, even where another tag shares the commit.
       RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
     steps:
@@ -59,14 +65,18 @@ jobs:
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
+      # The Apple TV app is native and needs neither the web app nor the iPhone build.
       - uses: pnpm/action-setup@v4
+        if: env.IOS == 'on'
         with:
           version: 11
       - uses: actions/setup-node@v5
+        if: env.IOS == 'on'
         with:
           node-version: 24
 
       - name: Build the web app
+        if: env.IOS == 'on'
         run: |
           [ -n "$AIOSTREAMS_REF" ] || unset AIOSTREAMS_REF
           scripts/build-web.sh
@@ -74,13 +84,22 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # Swift packages (AetherEngine) fetched once and kept between runs.
+      - uses: actions/cache@v4
+        with:
+          path: build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Packages/*/Package.swift', '**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
       - name: Build the iOS IPA
+        if: env.IOS == 'on'
         run: scripts/make-ipa.sh ios
 
       - name: Build the tvOS IPA
         run: scripts/make-ipa.sh tvos
 
       - uses: actions/upload-artifact@v4
+        if: env.IOS == 'on'
         with:
           name: AIOStreams-ipa
           path: build/AIOStreams.ipa
