@@ -38,8 +38,14 @@ struct SubtitleLook: Equatable {
     }
 
     /// The page's font names, as iOS knows them.
+    /// Stands for the system font at its regular weight, which no family name reaches.
+    static let systemRegular = "<system-regular>"
+
     static func family(_ name: String?) -> String? {
         switch name {
+        // The other apps draw "sans-serif" with the platform's plain sans at its regular weight
+        // (Roboto/Noto on Android); the system font's regular weight is the match here.
+        case "sans-serif": return systemRegular
         case "serif": return "Georgia"
         case "monospace", "serif-monospace": return "Menlo"
         case "casual": return "Chalkboard SE"
@@ -195,7 +201,9 @@ final class SubtitleOverlayView: UIView {
 
     private func font(size: CGFloat, bold: Bool, italic: Bool) -> UIFont {
         var descriptor: UIFontDescriptor
-        if let family = look.fontFamily {
+        if look.fontFamily == SubtitleLook.systemRegular {
+            descriptor = UIFont.systemFont(ofSize: size, weight: .regular).fontDescriptor
+        } else if let family = look.fontFamily {
             descriptor = UIFontDescriptor(fontAttributes: [.family: family])
         } else {
             descriptor = UIFont.systemFont(ofSize: size, weight: .semibold).fontDescriptor

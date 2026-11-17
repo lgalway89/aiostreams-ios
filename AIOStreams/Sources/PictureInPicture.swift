@@ -213,7 +213,7 @@ extension PictureInPicture {
             kCMTextMarkupAttribute_CharacterEdgeStyle as String: edge as String,
         ]
         if look.bold { attributes[kCMTextMarkupAttribute_BoldStyle as String] = true }
-        if let family = look.fontFamily { attributes[kCMTextMarkupAttribute_FontFamilyName as String] = family }
+        if let family = look.fontFamily, family != SubtitleLook.systemRegular { attributes[kCMTextMarkupAttribute_FontFamilyName as String] = family }
         return AVTextStyleRule(textMarkupAttributes: attributes).map { [$0] } ?? []
     }
 }
