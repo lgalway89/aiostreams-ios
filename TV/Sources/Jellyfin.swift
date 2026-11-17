@@ -232,6 +232,30 @@ struct SourceExtension: Decodable, Hashable {
     var size: Int64?
     var releaseGroup: String?
     var resolution: String?
+    /// The parsed parts a version badge also reads (lib/versions.ts versionText).
+    var quality: StringList?
+    var encode: StringList?
+    var visualTags: StringList?
+    var audioTags: StringList?
+    var audioChannels: StringList?
+    var languages: StringList?
+    var editions: StringList?
+}
+
+/// A field the server sends as one string or a list of them; anything else reads as empty.
+struct StringList: Decodable, Hashable {
+    var values: [String]
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let list = try? container.decode([String].self) {
+            values = list
+        } else if let one = try? container.decode(String.self) {
+            values = [one]
+        } else {
+            values = []
+        }
+    }
 }
 
 /// A stretch of a title the server knows: an intro, recap, credits, preview or ad (Jellyfin's

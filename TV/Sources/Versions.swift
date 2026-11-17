@@ -6,6 +6,7 @@ import SwiftUI
 
 struct VersionsView: View {
     @EnvironmentObject private var session: Session
+    @EnvironmentObject private var prefs: Preferences
     @Environment(\.dismiss) private var dismiss
     let choice: VersionChoice
     let play: (PlayRequest) -> Void
@@ -19,6 +20,7 @@ struct VersionsView: View {
     private var item: Item { choice.item }
     private var resumeMs: Double? { (choice.startMs ?? 0) > 0 ? choice.startMs : nil }
     private var sources: [MediaSource] { info?.mediaSources ?? [] }
+    private var badges: VersionBadges { VersionBadges(prefs.custom["versionBadges"]) }
 
     var body: some View {
         ZStack {
@@ -110,13 +112,14 @@ struct VersionsView: View {
 
     @ViewBuilder private var list: some View {
         if !sources.isEmpty {
+            let badges = badges
             ScrollView {
                 LazyVStack(spacing: Theme.px(8)) {
                     ForEach(sources, id: \.ownId) { source in
                         Button {
                             Task { await open(source) }
                         } label: {
-                            VersionCard(source: source, opening: opening == source.ownId)
+                            VersionCard(source: source, badges: badges.matching(source), opening: opening == source.ownId)
                         }
                         .buttonStyle(VersionCardStyle())
                         .disabled(opening != nil)
@@ -205,6 +208,7 @@ struct VersionsView: View {
 private struct VersionCard: View {
     @Environment(\.isFocused) private var focused
     let source: MediaSource
+    var badges: [VersionBadge] = []
     let opening: Bool
 
     var body: some View {
@@ -221,6 +225,11 @@ private struct VersionCard: View {
             }
             .frame(width: Theme.px(36), height: Theme.px(36))
             VStack(alignment: .leading, spacing: Theme.px(4)) {
+                if !badges.isEmpty {
+                    HStack(spacing: Theme.px(6)) {
+                        ForEach(badges, id: \.self) { VersionBadgePill(badge: $0) }
+                    }
+                }
                 Text(source.label)
                     .font(Theme.font(Theme.base, .medium))
                     .multilineTextAlignment(.leading)
