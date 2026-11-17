@@ -624,6 +624,9 @@ private struct PlayerChrome: View {
                         .focused($focus, equals: .pip)
                 }
             }
+            // While a panel is open the focus belongs to it: buttons left focusable here held it,
+            // and the panel (beside them, not above) couldn't be reached with the remote.
+            .disabled(panel != nil)
             .focusSection()
         }
         // Where the controls start, which the subtitles are kept above while they show.
@@ -917,15 +920,17 @@ private struct PlayerChrome: View {
     private func closePanel() {
         let from = panel
         panel = nil
-        switch from {
-        case .tracks: focus = .tracks
-        case .audio: focus = .audio
-        case .chapters: focus = .chapters
-        case .speed: focus = .speed
-        case .sync: focus = .sync
-        case .episodes: focus = .episodes
-        case nil: break
+        let back: PlayerFocus? = switch from {
+        case .tracks: .tracks
+        case .audio: .audio
+        case .chapters: .chapters
+        case .speed: .speed
+        case .sync: .sync
+        case .episodes: .episodes
+        case nil: nil
         }
+        // The buttons are focusable again only once the panel has gone.
+        if let back { DispatchQueue.main.async { focus = back } }
         wake()
     }
 
