@@ -63,6 +63,29 @@ final class Preferences: ObservableObject {
         }
     }
 
+    static let tvFontKey = "subtitleFontTV"
+    /// The fonts this Apple TV offers beyond the shared ones: family names (bundled or the system's).
+    static let tvFonts: [(label: String, value: String)] = [
+        ("Same as Font above", ""), ("System (semibold)", "system"), ("System (regular)", "system-regular"),
+        ("Open Sans", "Open Sans"), ("Roboto", "Roboto"), ("Inter", "Inter"), ("Helvetica Neue", "Helvetica Neue"),
+        ("Avenir Next", "Avenir Next"), ("Futura", "Futura"), ("Gill Sans", "Gill Sans"), ("Arial", "Arial"),
+        ("Verdana", "Verdana"), ("Trebuchet MS", "Trebuchet MS"), ("Georgia", "Georgia"),
+        ("Times New Roman", "Times New Roman"), ("Baskerville", "Baskerville"), ("American Typewriter", "American Typewriter"),
+        ("Courier New", "Courier New"), ("Menlo", "Menlo"), ("Marker Felt", "Marker Felt"),
+    ]
+
+    /// Saves a setting for this Apple TV only, under its own preferences id.
+    func setTV(_ key: String, _ value: String) {
+        if value.isEmpty { tvCustom.removeValue(forKey: key) } else { tvCustom[key] = value }
+        guard let client, let userId else { return }
+        var custom: [String: Any] = tvCustom
+        if value.isEmpty { custom[key] = "" }
+        let body: [String: Any] = ["Id": "aiostreams-tv", "Client": "aiostreams-tv", "CustomPrefs": custom]
+        Task {
+            _ = try? await client.json("POST", "/DisplayPreferences/aiostreams-tv", ["client": "aiostreams-tv", "userId": userId], body: body)
+        }
+    }
+
     private func push() async {
         guard let client, let userId else { return }
         var prefs = custom
@@ -357,6 +380,10 @@ final class Preferences: ObservableObject {
         look.outlineSize = ["none": 0, "thin": 1, "normal": 1.65, "thick": 3][text("subtitleOutline", "normal")] ?? 1.65
         look.shadowSize = flag("subtitleShadow", false) ? 3 : 0
         look.fontFamily = SubtitleLook.family(text("subtitleFont", "default"))
+        // This Apple TV's own font, from fonts the other apps don't have, before the shared one.
+        if let own = tvCustom[Self.tvFontKey], !own.isEmpty {
+            look.fontFamily = own == "system" ? nil : own == "system-regular" ? SubtitleLook.systemRegular : own
+        }
         let opacity = number("subtitleBackgroundOpacity", 0)
         let background = JSON.color(text("subtitleBackgroundColor", "#000000")) ?? .black
         look.backColor = background.withAlphaComponent(opacity / 100)
@@ -615,6 +642,12 @@ struct SettingsView: View {
                 synced(L("Font"), key: "subtitleFont", fallback: "default",
                        options: [(L("The player's own"), "default"), (L("Sans serif"), "sans-serif"), (L("Serif"), "serif"),
                                  (L("Monospace"), "monospace"), (L("Casual"), "casual"), (L("Cursive"), "cursive")])
+                row(L("Apple TV font"), value: Preferences.tvFonts.first { $0.value == (prefs.tvCustom[Preferences.tvFontKey] ?? "") }?.label
+                        ?? prefs.tvCustom[Preferences.tvFontKey] ?? "") {
+                    chooser = Chooser(title: L("Apple TV font"), options: Preferences.tvFonts,
+                                      current: prefs.tvCustom[Preferences.tvFontKey] ?? "") { prefs.setTV(Preferences.tvFontKey, $0) }
+                }
+                note(L("Only on this Apple TV, with more fonts than the other apps have."))
                 synced(L("Text colour"), key: "subtitleColor", fallback: "#ffffff",
                        options: [(L("White"), "#ffffff"), (L("Yellow"), "#ffff00"), (L("Light grey"), "#d1d1d1"),
                                  (L("Cyan"), "#00ffff"), (L("Green"), "#00ff00")])

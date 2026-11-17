@@ -145,6 +145,11 @@ targets:
           - Inter-SemiBold.ttf
           - Inter-Bold.ttf
           - Inter-ExtraBold.ttf
+          # Subtitle fonts (Apple TV font setting): Open Sans and Roboto, SIL OFL (TV/Fonts/OFL-*.txt).
+          - OpenSans-Regular.ttf
+          - OpenSans-Bold.ttf
+          - Roboto-Regular.ttf
+          - Roboto-Bold.ttf
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.aiostreams-ios.tv
