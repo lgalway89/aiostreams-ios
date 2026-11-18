@@ -40,6 +40,7 @@ struct HomeView: View {
     @State private var hero: [Item] = []
     @State private var resume: [Item] = []
     @State private var nextUp: [Item] = []
+    @State private var seriesLeft: [String: Int] = [:]
     /// Episodes of shows you follow airing soon (Jellyfin's Shows/Upcoming), as the web app's row.
     @State private var upcoming: [Item] = []
     @Environment(\.openRoute) private var openRoute
@@ -93,10 +94,10 @@ struct HomeView: View {
                 let continuing = merging ? mergeRows(resume, nextUp) : resume
                 if !continuing.isEmpty {
                     // Activity is in the rail, so the row needs no button of its own.
-                    WideRow(title: L("Continue watching"), items: continuing, play: play) { EmptyView() }
+                    WideRow(title: L("Continue watching"), items: continuing, left: seriesLeft, play: play) { EmptyView() }
                 }
                 if !merging && !nextUp.isEmpty {
-                    WideRow(title: L("Next up"), items: nextUp, play: play) { EmptyView() }
+                    WideRow(title: L("Next up"), items: nextUp, left: seriesLeft, play: play) { EmptyView() }
                 }
                 if !channels.isEmpty {
                     LiveRow(channels: channels, airing: airing, play: playChannel) {
@@ -167,6 +168,17 @@ struct HomeView: View {
         Task { choice = await playChoice(for: item, session: session) }
     }
 
+    /// How many aired episodes each show in Continue watching and Next up has left, from its series.
+    private func loadSeriesLeft(client: JellyfinClient, userId: String) async {
+        let ids = Array(Set((resume + nextUp).compactMap(\.seriesId)))
+        guard !ids.isEmpty else { return }
+        let result: ItemsResult? = try? await client.get("/Items", ["userId": userId, "Ids": ids.joined(separator: ","),
+                                                                     "Fields": "UserData"])
+        var left: [String: Int] = [:]
+        for show in result?.items ?? [] { if let count = show.userData?.unplayedItemCount { left[show.id] = count } }
+        if left != seriesLeft { seriesLeft = left }
+    }
+
     private func load() async {
         guard let client = session.client, let userId = session.userId else { return }
         loading = true
@@ -182,6 +194,7 @@ struct HomeView: View {
             if newResume != resume { resume = newResume }
             let newNextUp = (try? await nextResult.items) ?? []
             if newNextUp != nextUp { nextUp = newNextUp }
+            Task { await loadSeriesLeft(client: client, userId: userId) }
             saveTopShelf(client: client)
             let newUpcoming = (try? await upcomingResult.items) ?? []
             if newUpcoming != upcoming { upcoming = newUpcoming }
@@ -582,6 +595,8 @@ struct WideRow<Action: View>: View {
     let items: [Item]
     /// Cards with the day each airs, and how long until then.
     var upcoming = false
+    /// Episodes each show has left, by series id.
+    var left: [String: Int] = [:]
     let play: (Item) -> Void
     @ViewBuilder let action: () -> Action
 
@@ -597,7 +612,7 @@ struct WideRow<Action: View>: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: Theme.px(16)) {
                     ForEach(items) { item in
-                        WideCard(item: item, upcoming: upcoming) { play(item) }
+                        WideCard(item: item, upcoming: upcoming, left: item.seriesId.flatMap { left[$0] }) { play(item) }
                     }
                 }
                 .pagePadding()
@@ -618,6 +633,8 @@ struct WideCard: View {
     let item: Item
     /// Not out yet: the air day over the still, and how long until it beside the name.
     var upcoming = false
+    /// The show's aired episodes left, shown in the corner.
+    var left: Int? = nil
     let action: () -> Void
 
     private var airs: Date? { upcoming ? parseDate(item.premiereDate) : nil }
@@ -641,6 +658,16 @@ struct WideCard: View {
                                     .padding(.horizontal, Theme.px(8))
                                     .padding(.vertical, Theme.px(3))
                                     .background(Capsule().fill(.black.opacity(0.75)))
+                                    .padding(Theme.px(8))
+                            }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if !upcoming, let left, left > 0 {
+                                Text(L("%ld left", left))
+                                    .font(Theme.font(Theme.xs, .semibold))
+                                    .padding(.horizontal, Theme.px(8))
+                                    .padding(.vertical, Theme.px(3))
+                                    .background(Capsule().fill(Theme.brand500))
                                     .padding(Theme.px(8))
                             }
                         }

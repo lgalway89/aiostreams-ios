@@ -18,6 +18,9 @@ struct PlayerScreen: View {
     @State private var model: PlayerModel?
     /// The episode a version is being found for, to play on in.
     @State private var finding: Item?
+    /// Versions of this title that failed here, and whether the next is being found.
+    @State private var tried: (item: String, ids: Set<String>) = ("", [])
+    @State private var retrying = false
 
     var body: some View {
         Group {
@@ -32,7 +35,16 @@ struct PlayerScreen: View {
         }
         .ignoresSafeArea()
         .overlay(alignment: .bottom) {
-            if let finding {
+            if retrying {
+                HStack(spacing: Theme.px(12)) {
+                    ProgressView()
+                    Text(L("That version didn't play. Trying the next one…")).font(Theme.font(Theme.base, .medium))
+                }
+                .padding(.horizontal, Theme.px(20))
+                .padding(.vertical, Theme.px(12))
+                .background(Capsule().fill(Color(white: 17 / 255).opacity(0.95)))
+                .padding(.bottom, Theme.px(40))
+            } else if let finding {
                 HStack(spacing: Theme.px(12)) {
                     ProgressView()
                     Text(L("Finding a version of %@…", "\(finding.displayTitle)")).font(Theme.font(Theme.base, .medium))
@@ -86,8 +98,49 @@ struct PlayerScreen: View {
             rules: prefs.playerRules
         )
         player.scrubPreviews = prefs.seekPreviews
+        player.onFailure = { _ in Task { await skipDead(player) } }
         model = player
         player.start()
+        // A link that never starts (no error, just waiting) counts as dead after 30 seconds.
+        if !request.item.isChannel && !request.isTrailer {
+            Task {
+                try? await Task.sleep(for: .seconds(30))
+                if model === player, !player.started, player.failure == nil { await skipDead(player) }
+            }
+        }
+    }
+
+    /// Plays the next version in the list when this one fails or never starts, from where it got to,
+    /// as Nuvio Arc's "dead links skipped": up to four tries per title, then the failure shows.
+    private func skipDead(_ current: PlayerModel) async {
+        guard prefs.skipDeadVersions, !retrying, model === current, !current.isLive, !current.request.isTrailer,
+              current.request.partyEntry == nil, let client = session.client, let userId = session.userId else { return }
+        let item = current.request.item
+        if tried.item != item.id { tried = (item.id, []) }
+        tried.ids.insert(current.request.source.ownId)
+        guard tried.ids.count <= 4 else { return }
+        retrying = true
+        defer { retrying = false }
+        let info = try? await client.playbackInfo(userId: userId, itemId: item.id)
+        let sources = (info?.mediaSources ?? []).filter { $0.aiostreams?.ytId == nil }
+        let at = sources.firstIndex { $0.ownId == current.request.source.ownId } ?? -1
+        guard model === current,
+              let next = (sources.dropFirst(at + 1) + sources.prefix(max(at, 0))).first(where: { !tried.ids.contains($0.ownId) })
+        else { return }
+        var chosen = next
+        var playSession = info?.playSessionId
+        if let named = try? await client.playbackInfo(userId: userId, itemId: item.id, sourceId: next.ownId),
+           let match = named.mediaSources?.first(where: { $0.ownId == next.ownId }) ?? named.mediaSources?.first {
+            chosen = match
+            playSession = named.playSessionId ?? playSession
+        }
+        guard model === current else { return }
+        AppLog.warn("player", "version failed, trying the next: \(next.label)")
+        LastVersions.set(item.id, chosen)
+        let resume = current.started && current.position > 5 ? current.position * 1000 : current.request.startMs
+        current.stop()
+        await start(PlayRequest(item: item, source: chosen, playSessionId: playSession, startMs: resume,
+                                queue: current.request.queue, audioLanguages: current.request.audioLanguages))
     }
 
     /// Plays the next episode here, in the version that carries on from this one: the same binge

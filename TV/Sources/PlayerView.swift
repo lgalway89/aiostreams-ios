@@ -32,7 +32,11 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var subtitleTracks: [TrackInfo] = []
     @Published private(set) var activeAudio: Int?
     @Published private(set) var activeSubtitle: Int?
-    @Published private(set) var failure: String?
+    @Published private(set) var failure: String? {
+        didSet { if let failure, oldValue == nil { onFailure?(failure) } }
+    }
+    /// Told once when this version fails, so the next one can be tried.
+    var onFailure: ((String) -> Void)?
     @Published private(set) var finished = false
     /// The file's chapters, or the server's where the file has none, with pictures where there are.
     @Published private(set) var chapters: [PlayerChapter] = []

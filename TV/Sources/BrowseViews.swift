@@ -91,6 +91,12 @@ struct HomeRow: Identifiable {
 
 struct ItemRow: View {
     let row: HomeRow
+    @EnvironmentObject private var prefs: Preferences
+
+    /// Watched titles dimmed, hidden or left as they are (Settings > Interface, on this Apple TV).
+    private var items: [Item] {
+        prefs.homeWatched == "hide" ? row.items.filter { $0.userData?.played != true } : row.items
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.px(12)) {
@@ -99,9 +105,10 @@ struct ItemRow: View {
                 .pagePadding()
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: Theme.px(16)) {
-                    ForEach(row.items) { item in
+                    ForEach(items) { item in
                         // Posters in a row open into a preview; a grid's would push its columns out.
-                        PosterLink(item: item, wide: row.wide, previews: !row.wide)
+                        PosterLink(item: item, wide: row.wide, previews: !row.wide,
+                                   dimmed: prefs.homeWatched == "dim" && item.userData?.played == true)
                     }
                     // The whole library, from the end of its row.
                     if let library = row.library {
@@ -190,6 +197,8 @@ struct PosterLink: View {
     var wide: Bool = false
     /// Opens into a card preview when focus rests on it (Settings > Interface > Card previews).
     var previews = false
+    /// A watched title in a Home row, faded back (Watched titles on Home: Dim).
+    var dimmed = false
     @State private var opened = false
 
     /// A poster's width at the web app's Poster size: small, medium or large.
@@ -224,6 +233,7 @@ struct PosterLink: View {
                     } else {
                         RemoteImage(url: imageURL)
                             .frame(width: size.width, height: size.height)
+                            .opacity(dimmed && !focused ? 0.4 : 1)
                     }
                     if item.isSeries, let left = item.userData?.unplayedItemCount, left > 0, item.userData?.played != true {
                         Text(String(left))

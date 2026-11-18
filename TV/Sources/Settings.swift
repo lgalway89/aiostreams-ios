@@ -64,6 +64,10 @@ final class Preferences: ObservableObject {
     }
 
     static let tvFontKey = "subtitleFontTV"
+    /// On unless turned off on this Apple TV.
+    var skipDeadVersions: Bool { tvCustom["skipDeadVersions"] != "0" }
+    /// Home rows' watched titles: show, dim (the default) or hide.
+    var homeWatched: String { tvCustom["homeWatched"] ?? "dim" }
     /// The fonts this Apple TV offers beyond the shared ones: family names (bundled or the system's).
     static let tvFonts: [(label: String, value: String)] = [
         ("Same as Font above", ""), ("System (semibold)", "system"), ("System (regular)", "system-regular"),
@@ -505,6 +509,10 @@ struct SettingsView: View {
             section(nil, note: L("Saved to your account, so the web app and your other devices use them too.")) {
                 toggle(L("Auto-play the first version"), key: "autoPlayFirst", fallback: false)
                 toggle(L("Find versions when a title opens"), key: "preloadVersions", fallback: false)
+                row(L("Skip versions that don't play"), value: prefs.skipDeadVersions ? L("On") : L("Off")) {
+                    prefs.setTV("skipDeadVersions", prefs.skipDeadVersions ? "0" : "")
+                }
+                note(L("On this Apple TV: a version that fails or doesn't start within 30 seconds gives way to the next one in the list, up to four tries, carrying on from where it stopped."))
                 note(L("Looks for versions as soon as a title's page opens, so Play and the version list don't wait. Each title you open is looked up, even if you don't play it."))
                 note(prefs.autoPlayFirst
                     ? L("Play starts the first version, and resuming goes back to the version you were watching. Hold select on a title and choose Choose a version to pick instead.")
@@ -690,6 +698,12 @@ struct SettingsView: View {
                 }
                 toggle(L("Combine movie and show results"), key: "combineSearch", fallback: false)
                 toggle(L("Blur episodes you haven't started"), key: "blurSpoilers", fallback: false)
+                row(L("Watched titles on Home"), value: [("show", L("Show")), ("dim", L("Dim")), ("hide", L("Hide"))]
+                        .first { $0.0 == prefs.homeWatched }?.1 ?? L("Dim")) {
+                    chooser = Chooser(title: L("Watched titles on Home"),
+                                      options: [(L("Show"), "show"), (L("Dim"), "dim"), (L("Hide"), "hide")],
+                                      current: prefs.homeWatched) { prefs.setTV("homeWatched", $0 == "dim" ? "" : $0) }
+                }
                 row(L("Featured on home"), value: featuredLabel) { chooseFeatured() }
                 synced(L("Hero"), key: "heroMode", fallback: "rotate",
                        options: [(L("Rotates through featured titles"), "rotate"), (L("Follows the selected card"), "follow"),
