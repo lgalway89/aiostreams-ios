@@ -106,6 +106,11 @@ struct LiveTVView: View {
                 } else {
                     ForEach(channels) { channel in
                         ChannelRow(channel: channel, slots: slots(channel), now: now) { play(channel) }
+                            // Pressing plays the first link; holding offers the channel's links to pick from.
+                            .contextMenu {
+                                Button { play(channel) } label: { Label(L("Play"), systemImage: "play.fill") }
+                                Button { choose(channel) } label: { Label(L("Choose a version"), systemImage: "list.bullet") }
+                            }
                             .pagePadding()
                             .onAppear { if channel.id == channels.last?.id { Task { await more() } } }
                     }
@@ -252,6 +257,12 @@ struct LiveTVView: View {
     private func play(_ channel: Item) {
         RecentChannels.note(channel.id)
         choice = VersionChoice(item: channel, startMs: nil, mode: .straight)
+    }
+
+    /// The channel's links listed, to pick one: SportzX and AceStream channels have several.
+    private func choose(_ channel: Item) {
+        RecentChannels.note(channel.id)
+        choice = VersionChoice(item: channel, startMs: nil, mode: .list)
     }
 }
 
