@@ -102,9 +102,10 @@ struct PlayerScreen: View {
         model = player
         player.start()
         // A link that never starts (no error, just waiting) counts as dead after 30 seconds.
-        if !request.item.isChannel && !request.isTrailer {
+        if !request.isTrailer {
             Task {
-                try? await Task.sleep(for: .seconds(30))
+                // A live link starts in seconds or not at all, so it gets less time.
+                try? await Task.sleep(for: .seconds(request.item.isChannel ? 20 : 30))
                 if model === player, !player.started, player.failure == nil { await skipDead(player) }
             }
         }
@@ -113,7 +114,7 @@ struct PlayerScreen: View {
     /// Plays the next version in the list when this one fails or never starts, from where it got to,
     /// as Nuvio Arc's "dead links skipped": up to four tries per title, then the failure shows.
     private func skipDead(_ current: PlayerModel) async {
-        guard prefs.skipDeadVersions, !retrying, model === current, !current.isLive, !current.request.isTrailer,
+        guard prefs.skipDeadVersions, !retrying, model === current, !current.request.isTrailer,
               current.request.partyEntry == nil, let client = session.client, let userId = session.userId else { return }
         let item = current.request.item
         if tried.item != item.id { tried = (item.id, []) }
@@ -137,7 +138,8 @@ struct PlayerScreen: View {
         guard model === current else { return }
         AppLog.warn("player", "version failed, trying the next: \(next.label)")
         LastVersions.set(item.id, chosen)
-        let resume = current.started && current.position > 5 ? current.position * 1000 : current.request.startMs
+        // Live, there's no place to carry on from: the next link starts at the live edge.
+        let resume = current.isLive ? nil : current.started && current.position > 5 ? current.position * 1000 : current.request.startMs
         current.stop()
         await start(PlayRequest(item: item, source: chosen, playSessionId: playSession, startMs: resume,
                                 queue: current.request.queue, audioLanguages: current.request.audioLanguages))
