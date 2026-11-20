@@ -217,7 +217,7 @@ struct HomeView: View {
                             "GenreIds": genre,
                             "Recursive": "true",
                             "Limit": "24",
-                            "Fields": "Overview,Genres",
+                            "Fields": "Overview,Genres,ProviderIds",
                         ])
                         return (index, view, result?.items ?? [])
                     }
@@ -233,6 +233,8 @@ struct HomeView: View {
             }
             let rows = homeRows(heads)
             if !sameRows(rows, libraries) { libraries = rows }
+            // Ambient mode's titles: the films and shows on Home with art.
+            Ambient.shared.pool = heads.values.flatMap(\.1).filter { !$0.isEpisode && client.backdrop($0, height: 1080) != nil }
             let picks = heroPicks(views: views, heads: heads, client: client)
             if hero.isEmpty || picks.map(\.id) != hero.map(\.id) { hero = picks }
         } catch let failure as JellyfinError where failure.status == 401 {
@@ -581,9 +583,12 @@ struct HeroMeta: View {
         if let genres = item.genres, !genres.isEmpty {
             parts.append(AnyView(Text(genres.prefix(3).joined(separator: ", "))))
         }
-        return MetaLine(parts: parts)
-            .font(Theme.font(Theme.sm))
-            .foregroundStyle(Theme.gray200)
+        return HStack(spacing: Theme.px(18)) {
+            MetaLine(parts: parts)
+            CriticScoresView(item: item)
+        }
+        .font(Theme.font(Theme.sm))
+        .foregroundStyle(Theme.gray200)
     }
 }
 

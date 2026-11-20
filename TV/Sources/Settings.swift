@@ -66,8 +66,12 @@ final class Preferences: ObservableObject {
     static let tvFontKey = "subtitleFontTV"
     /// On unless turned off on this Apple TV.
     var skipDeadVersions: Bool { tvCustom["skipDeadVersions"] != "0" }
+    /// Added subtitles are lined up with the film's own (on unless turned off).
+    var autoSyncSubtitles: Bool { tvCustom["subtitleAutoSync"] != "0" }
     /// Home rows' watched titles: show, dim (the default) or hide.
     var homeWatched: String { tvCustom["homeWatched"] ?? "dim" }
+    /// Idle minutes before ambient mode shows on this Apple TV; 0 is off.
+    var ambientMinutes: Int { Int(tvCustom["ambientMinutes"] ?? "") ?? 5 }
     /// The fonts this Apple TV offers beyond the shared ones: family names (bundled or the system's).
     static let tvFonts: [(label: String, value: String)] = [
         ("Same as Font above", ""), ("System (semibold)", "system"), ("System (regular)", "system-regular"),
@@ -643,6 +647,10 @@ struct SettingsView: View {
                 }
                 configToggle(L("Remember picks per show"), key: "RememberSubtitleSelections", on: prefs.rememberSubtitles)
                 note(L("Subtitles you pick or turn off while watching a show stay that way for its other episodes. Picking what the settings above would show forgets it."))
+                row(L("Sync added subtitles"), value: prefs.autoSyncSubtitles ? L("On") : L("Off")) {
+                    prefs.setTV("subtitleAutoSync", prefs.autoSyncSubtitles ? "0" : "")
+                }
+                note(L("On this Apple TV: subtitles from your subtitle addons are lined up with the film's own subtitles when the file has them, so they aren't early or late. The delay found shows under Sync while watching."))
             }
             section(L("Subtitle style"), note: L("The same style as the web app's, on every device you sign in to.")) {
                 synced(L("Size"), key: "subtitleSize", fallback: "normal",
@@ -704,6 +712,13 @@ struct SettingsView: View {
                                       options: [(L("Show"), "show"), (L("Dim"), "dim"), (L("Hide"), "hide")],
                                       current: prefs.homeWatched) { prefs.setTV("homeWatched", $0 == "dim" ? "" : $0) }
                 }
+                row(L("Ambient mode"), value: prefs.ambientMinutes == 0 ? L("Off") : L("After %ld minutes", prefs.ambientMinutes)) {
+                    chooser = Chooser(title: L("Ambient mode"),
+                                      options: [(L("Off"), "0"), (L("After %ld minutes", 2), "2"), (L("After %ld minutes", 5), "5"),
+                                                (L("After %ld minutes", 10), "10"), (L("After %ld minutes", 15), "15")],
+                                      current: String(prefs.ambientMinutes)) { prefs.setTV("ambientMinutes", $0 == "5" ? "" : $0) }
+                }
+                note(L("On this Apple TV: when it's left idle outside the player, the titles on Home go by full screen until you press a button. After an hour the Apple TV's own screensaver and sleep take over."))
                 row(L("Featured on home"), value: featuredLabel) { chooseFeatured() }
                 synced(L("Hero"), key: "heroMode", fallback: "rotate",
                        options: [(L("Rotates through featured titles"), "rotate"), (L("Follows the selected card"), "follow"),

@@ -131,9 +131,13 @@ struct DetailView: View {
                 Text(String(format: "%.1f", score))
             }))
         }
-        return MetaLine(parts: parts)
-            .font(Theme.font(Theme.sm))
-            .foregroundStyle(Theme.gray200)
+        return HStack(spacing: Theme.px(18)) {
+            MetaLine(parts: parts)
+            // Rotten Tomatoes, Metacritic and Letterboxd, as Nuvio shows them.
+            CriticScoresView(item: shown)
+        }
+        .font(Theme.font(Theme.sm))
+        .foregroundStyle(Theme.gray200)
     }
 
     /// The web app's labels: `Resume S01E04`, `Resume from 1:35:11`, `Play S01E01`, `Play`.

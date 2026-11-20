@@ -65,6 +65,23 @@ final class PlayerModel: ObservableObject {
         overlay.delay = subtitleDelay
     }
 
+    /// A line the player shows once, as the auto-sync settles.
+    struct SyncNote: Equatable {
+        let id = UUID()
+        let text: String
+    }
+    @Published private(set) var syncNote: SyncNote?
+    /// Added subtitles are lined up with the file's own, as the web app does.
+    private let autoSyncSubtitles: Bool
+    private var playURL: URL?
+    private var playHeaders: [String: String] = [:]
+    private var indexTask: Task<[SubtitleIndex.Timeline]?, Never>?
+    private var syncTask: Task<Void, Never>?
+    /// The delays found per added subtitle, by engine track id; nil where none could be.
+    private var syncedDelays: [Int: Double?] = [:]
+    /// The delay the sync set, until the user changes it.
+    private var autoDelay: Double?
+
     func setAudioDelay(_ seconds: Double) {
         audioDelay = (seconds * 100).rounded() / 100
         engine.setAudioDelay(audioDelay)
@@ -118,8 +135,9 @@ final class PlayerModel: ObservableObject {
          audioDelay: Double = 0,
          liveDisplay: (rate: Bool, range: Bool) = (true, true),
          look: SubtitleLook = SubtitleLook(), speakers: SpatialSpeakerLayout? = .l714, animeUpscaling: Bool = false,
-         userId: String? = nil, rules: PlayerRules = PlayerRules()) {
+         userId: String? = nil, rules: PlayerRules = PlayerRules(), autoSyncSubtitles: Bool = true) {
         self.request = request
+        self.autoSyncSubtitles = autoSyncSubtitles
         isLive = request.source.isInfiniteStream == true || request.item.isChannel
         self.client = client
         self.tracks = tracks
@@ -179,7 +197,10 @@ final class PlayerModel: ObservableObject {
         engine.$audioTracks.sink { [weak self] in self?.audioTracks = $0 }.store(in: &bag)
         engine.$subtitleTracks.sink { [weak self] in self?.subtitleTracks = $0 }.store(in: &bag)
         engine.$activeAudioTrackIndex.sink { [weak self] in self?.activeAudio = $0 }.store(in: &bag)
-        engine.$activeSubtitleTrackIndex.sink { [weak self] in self?.activeSubtitle = $0 }.store(in: &bag)
+        engine.$activeSubtitleTrackIndex.removeDuplicates().sink { [weak self] in
+            self?.activeSubtitle = $0
+            self?.autoSync($0)
+        }.store(in: &bag)
         engine.$subtitleCues.sink { [weak self] in self?.overlay.setCues($0) }.store(in: &bag)
         engine.clock.$sourceTime.sink { [weak self] in self?.overlay.setTime($0) }.store(in: &bag)
         Publishers.CombineLatest(engine.$sourceVideoWidth, engine.$sourceVideoHeight)
@@ -199,6 +220,8 @@ final class PlayerModel: ObservableObject {
         }
         var options = LoadOptions()
         options.httpHeaders = request.source.requiredHttpHeaders ?? [:]
+        playURL = url
+        playHeaders = options.httpHeaders
         // The engine writes the display criteria itself, following the Apple TV's Match Content setting.
         options.matchContentEnabled = Self.window?.avDisplayManager.isDisplayCriteriaMatchingEnabled ?? true
         // Serves Dolby Vision profile 8 as profile 5 on a TV without Dolby Vision; ignored on one with it.
@@ -402,6 +425,103 @@ final class PlayerModel: ObservableObject {
             "userId": userId, "Ids": ids.joined(separator: ","), "Fields": "ProviderIds,Genres,Tags",
         ])
         return (result?.items ?? []).contains(where: \.hasAnimeIds)
+    }
+
+    /// Lines an added subtitle up with the file's own subtitles, read from the file's index, and
+    /// shows it with the delay found, as the web app's auto-sync does (lib/subtitles/auto-sync.ts).
+    private func autoSync(_ id: Int?) {
+        syncTask?.cancel()
+        // A delay set for another subtitle doesn't carry over to this one.
+        if let applied = autoDelay {
+            if abs(subtitleDelay - applied) < 0.05 { setSubtitleDelay(0) }
+            autoDelay = nil
+        }
+        guard autoSyncSubtitles, !isLive, !request.isTrailer, let id,
+              id >= AetherEngine.externalSubtitleTrackIDBase else { return }
+        if let known = syncedDelays[id] {
+            if let known { applyAutoDelay(known) }
+            return
+        }
+        let at = id - AetherEngine.externalSubtitleTrackIDBase
+        let streams = serverStreams()
+        guard at < streams.count, let address = streams[at].deliveryUrl, let subtitleURL = client.absolute(address),
+              let video = playURL, let scheme = video.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        let language = LanguageCodes.normal(streams[at].language)
+        if indexTask == nil {
+            let headers = playHeaders
+            indexTask = Task.detached(priority: .utility) {
+                do { return try await SubtitleIndex.read(url: video, headers: headers) } catch {
+                    AppLog.info("subtitles", "no subtitle index: \(error)")
+                    return nil
+                }
+            }
+        }
+        let index = indexTask
+        syncTask = Task { [weak self] in
+            guard let timelines = await index?.value, !timelines.isEmpty, !Task.isCancelled, let self else { return }
+            var own = self.engine.subtitleTracks.filter { !$0.isExternal }.sorted { $0.id < $1.id }
+            for _ in 0..<20 where own.isEmpty {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                guard !Task.isCancelled else { return }
+                own = self.engine.subtitleTracks.filter { !$0.isExternal }.sorted { $0.id < $1.id }
+            }
+            // The index's tracks must be the engine's, in number and in picture or text.
+            let pictureCodecs = ["pgssub", "dvdsub", "dvbsub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"]
+            guard own.count == timelines.count,
+                  zip(own, timelines).allSatisfy({ pictureCodecs.contains($0.codec.lowercased()) == $1.isPicture }) else {
+                AppLog.info("subtitles", "auto-sync: the index's tracks don't match the engine's")
+                return
+            }
+            // A full subtitle of the file's own, in the added one's language where there is one, text over pictures.
+            let candidates: [(rank: Int, lines: [SubSpan], name: String)] = zip(own, timelines).compactMap { track, timeline in
+                guard timeline.lines.count >= 30,
+                      let kind = SubtitleKind.of(title: track.name, forced: track.isForced, hearingImpaired: track.isHearingImpaired),
+                      kind == .normal || kind == .sdh else { return nil }
+                let other = !(language != nil && LanguageCodes.normal(track.language) == language)
+                let rank = (other ? 4 : 0) + (timeline.isPicture ? 2 : 0) + (kind == .normal ? 0 : 1)
+                return (rank, timeline.lines.map { SubSpan(start: $0.start, end: $0.end) }, track.name ?? track.language ?? "")
+            }
+            guard let reference = candidates.min(by: { $0.rank < $1.rank }) else {
+                AppLog.info("subtitles", "auto-sync: no subtitle of the file's own to match against")
+                return
+            }
+            guard let fetched = try? await URLSession.shared.data(from: subtitleURL),
+                  (fetched.1 as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+                  !Task.isCancelled else { return }
+            let text = String(decoding: fetched.0, as: UTF8.self)
+            let target = SubtitleTimings.parse(text)
+            guard target.count >= 30 else { return }
+            let found = await Task.detached(priority: .utility) {
+                SubtitleAligner.align(reference: reference.lines, target: target, limitMs: 600_000)
+            }.value
+            guard !Task.isCancelled else { return }
+            AppLog.info("subtitles", "auto-sync against \(reference.name): \(found.map { "\($0.delayMs) ms ratio \($0.ratio) confident \($0.confident)" } ?? "no match")")
+            guard let found, found.confident else {
+                self.syncedDelays[id] = .some(nil)
+                self.syncNote = SyncNote(text: L("These subtitles couldn't be lined up with the film. Try another set if they're out of time."))
+                return
+            }
+            guard found.ratio == 1 else {
+                self.syncedDelays[id] = .some(nil)
+                self.syncNote = SyncNote(text: L("These subtitles are timed for another frame rate. Try another set if they drift."))
+                return
+            }
+            let delay = found.delayMs / 1000
+            self.syncedDelays[id] = delay
+            guard self.activeSubtitle == id, self.autoDelay == nil, self.subtitleDelay == 0 else { return }
+            self.applyAutoDelay(delay)
+            if abs(delay) >= 0.15 {
+                let amount = String(format: "%.1f", abs(delay))
+                self.syncNote = SyncNote(text: delay > 0
+                    ? L("Subtitles synced to the film (%@ s later)", amount)
+                    : L("Subtitles synced to the film (%@ s earlier)", amount))
+            }
+        }
+    }
+
+    private func applyAutoDelay(_ seconds: Double) {
+        setSubtitleDelay(seconds)
+        autoDelay = subtitleDelay
     }
 
     /// The server's external subtitle streams, in the order they're registered with the engine.
@@ -745,6 +865,8 @@ final class PlayerModel: ObservableObject {
             Task { await client.fire("/Sessions/Playing/Stopped", body: payload) }
         }
         stopped = true
+        syncTask?.cancel()
+        indexTask?.cancel()
         bag.removeAll()
         overlay.clear()
         // The plain stop returns the TV to its default mode for the app's own screens.

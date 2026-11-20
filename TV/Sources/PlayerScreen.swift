@@ -95,7 +95,8 @@ struct PlayerScreen: View {
             speakers: prefs.speakers,
             animeUpscaling: prefs.animeUpscaling,
             userId: session.userId,
-            rules: prefs.playerRules
+            rules: prefs.playerRules,
+            autoSyncSubtitles: prefs.autoSyncSubtitles
         )
         player.scrubPreviews = prefs.seekPreviews
         player.onFailure = { _ in Task { await skipDead(player) } }
@@ -479,12 +480,16 @@ private struct PlayerChrome: View {
         }
         .onAppear { focus = .play; wake() }
         // Another device's remote: the player takes what plays here, the pages the rest.
-        .onAppear { ServerEvents.shared.playerHandler = remote }
-        .onDisappear { ServerEvents.shared.playerHandler = nil }
+        .onAppear { ServerEvents.shared.playerHandler = remote; Ambient.shared.hold(true) }
+        .onDisappear { ServerEvents.shared.playerHandler = nil; Ambient.shared.hold(false) }
         .onChange(of: focus) { _, _ in if shown { wake() } }
         // The subtitles rise over the controls while they show, and settle back as they hide.
         .onChange(of: shown) { _, shown in model.liftSubtitles(shown ? liftShare : 0) }
         // At the end, the next episode plays on where Jellyfin's autoplay is on.
+        // What the subtitle auto-sync found, once.
+        .onChange(of: model.syncNote) { _, note in
+            if let note { show(note.text) }
+        }
         .onChange(of: model.finished) { _, done in
             guard done else { return }
             // In a watch party, the group moves on to its next title, or stops.

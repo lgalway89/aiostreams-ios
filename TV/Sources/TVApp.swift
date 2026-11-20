@@ -20,7 +20,7 @@ struct AIOStreamsTVApp: App {
                 case .needsServer: ServerView()
                 case .needsSignIn: SignInView()
                 case .signedIn:
-                    if session.asking { SignInView() } else { MainView() }
+                    if session.asking { SignInView() } else { MainView().ambientMode() }
                 }
             }
             // The web app's theme colours and language, once they've loaded.
