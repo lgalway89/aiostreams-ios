@@ -73,7 +73,7 @@ actor CriticRatings {
     }
 }
 
-/// The critic scores in a line of facts: `🍅 96%  🍿 87%  MC 96  LB 4.2`.
+/// The critic scores in a line of facts: `🍅 96%  🍿 87%`, then Metacritic's and Letterboxd's logos with theirs.
 struct CriticScoresView: View {
     let item: Item
     @State private var scores: [CriticRatings.Score] = []
@@ -86,11 +86,19 @@ struct CriticScoresView: View {
     var body: some View {
         HStack(spacing: Theme.px(10)) {
             ForEach(scores, id: \.source) { score in
-                HStack(spacing: Theme.px(4)) {
-                    Text(Self.mark(score))
-                        .font(Theme.font(Theme.xs, .bold))
-                        .foregroundStyle(Self.colour(score))
+                HStack(spacing: Theme.px(5)) {
+                    if let logo = Self.logo(score) {
+                        // Metacritic's and Letterboxd's own marks (the web app's brand icons).
+                        Image(logo)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: Theme.px(score.source == "letterboxd" ? 10 : 15))
+                    } else {
+                        Text(Self.mark(score))
+                            .font(Theme.font(Theme.xs, .bold))
+                    }
                     Text(Self.text(score))
+                        .foregroundStyle(Self.colour(score))
                 }
             }
         }
@@ -98,6 +106,14 @@ struct CriticScoresView: View {
             guard let tmdbId, !item.isEpisode else { scores = []; return }
             let found = await CriticRatings.shared.scores(tmdbId: tmdbId, series: item.isSeries)
             if !Task.isCancelled { scores = found }
+        }
+    }
+
+    private static func logo(_ score: CriticRatings.Score) -> String? {
+        switch score.source {
+        case "metacritic": return "rating-metacritic"
+        case "letterboxd": return "rating-letterboxd"
+        default: return nil
         }
     }
 
@@ -115,8 +131,7 @@ struct CriticScoresView: View {
         case "metacritic":
             return score.value >= 61 ? Color(red: 0.4, green: 0.8, blue: 0.2)
                 : score.value >= 40 ? Color(red: 1, green: 0.8, blue: 0.2) : Color(red: 1, green: 0, blue: 0)
-        case "letterboxd": return Color(red: 0, green: 0.88, blue: 0.33)
-        default: return .white
+        default: return Theme.gray200
         }
     }
 
