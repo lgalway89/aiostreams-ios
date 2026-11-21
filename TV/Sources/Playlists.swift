@@ -84,19 +84,28 @@ struct PlaylistsView: View {
     }
 }
 
-/// A playlist's picture, name and how many titles it holds.
+/// A playlist's picture, name and how many titles it holds. The picture is its first few titles'
+/// posters fanned out side by side (a show once, by its own poster), not one poster cropped wide.
 private struct PlaylistCard: View {
     @EnvironmentObject private var session: Session
     let playlist: Item
+    @State private var covers: [URL] = []
+
+    private static let width = Theme.px(260)
+    private static let height = Theme.px(146)
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.px(8)) {
             ZStack {
-                RoundedRectangle(cornerRadius: Theme.px(10), style: .continuous).fill(Color.white.opacity(0.06))
-                Image(systemName: "list.bullet.rectangle.portrait").font(.system(size: Theme.px(36))).foregroundStyle(Theme.gray500)
-                RemoteImage(url: session.client?.poster(playlist, height: 480))
+                LinearGradient(colors: [Color(red: 0.16, green: 0.11, blue: 0.30), Color(red: 0.07, green: 0.05, blue: 0.13)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                if covers.isEmpty {
+                    Image(systemName: "list.bullet.rectangle.portrait").font(.system(size: Theme.px(36))).foregroundStyle(Theme.gray500)
+                } else {
+                    fan
+                }
             }
-            .frame(width: Theme.px(260), height: Theme.px(146))
+            .frame(width: Self.width, height: Self.height)
             .clipShape(RoundedRectangle(cornerRadius: Theme.px(10), style: .continuous))
             Text(playlist.name ?? "").font(Theme.font(Theme.base, .semibold)).lineLimit(1)
             if let count = playlist.childCount {
@@ -104,6 +113,43 @@ private struct PlaylistCard: View {
             }
         }
         .padding(Theme.px(8))
+        .task(id: playlist.id) { await loadCovers() }
+    }
+
+    /// Up to five 2:3 posters, overlapping, the first in front and largest.
+    private var fan: some View {
+        let h = Self.height - Theme.px(22)
+        let w = h * 2 / 3
+        let n = covers.count
+        let step = n > 1 ? min(w * 0.72, (Self.width - Theme.px(24) - w) / CGFloat(n - 1)) : 0
+        let total = w + step * CGFloat(max(n - 1, 0))
+        return ZStack(alignment: .leading) {
+            ForEach(Array(covers.enumerated().reversed()), id: \.offset) { i, url in
+                let scale = 1 - CGFloat(i) * 0.06
+                RemoteImage(url: url)
+                    .frame(width: w * scale, height: h * scale)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.px(6), style: .continuous))
+                    .shadow(color: .black.opacity(0.55), radius: Theme.px(6), x: Theme.px(3), y: 0)
+                    .offset(x: step * CGFloat(i))
+            }
+        }
+        .frame(width: total, height: h, alignment: .leading)
+    }
+
+    private func loadCovers() async {
+        guard let client = session.client, let userId = session.userId else { return }
+        let entries: ItemsResult? = try? await client.get("/Playlists/\(playlist.id)/Items", ["userId": userId, "Limit": "30"])
+        var seen = Set<String>(), urls: [URL] = []
+        for item in entries?.items ?? [] {
+            let key = item.seriesId ?? item.id
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            let url = item.seriesId.map { client.image($0, .primary, tag: item.seriesPrimaryImageTag, height: 360) }
+                ?? client.poster(item, height: 360)
+            if let url { urls.append(url) }
+            if urls.count == 5 { break }
+        }
+        covers = urls
     }
 }
 
