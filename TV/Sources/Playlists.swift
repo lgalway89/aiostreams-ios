@@ -163,16 +163,35 @@ struct PlaylistView: View {
     @State private var loaded = false
     @State private var choice: VersionChoice?
     @State private var confirmDelete = false
+    /// Newest first (the playlist's own order) or A to Z; kept on this Apple TV for every playlist.
+    @AppStorage("playlists.sortAZ") private var sortAZ = false
+
+    /// The titles in the order chosen: a show's episodes stay together, in season and episode order.
+    private var shown: [Item] {
+        guard sortAZ else { return entries }
+        func name(_ i: Item) -> String { (i.isEpisode ? i.seriesName : i.name) ?? "" }
+        return entries.sorted {
+            let a = name($0), b = name($1)
+            if a.caseInsensitiveCompare(b) != .orderedSame {
+                return a.localizedStandardCompare(b) == .orderedAscending
+            }
+            return ($0.parentIndexNumber ?? 0, $0.indexNumber ?? 0) < ($1.parentIndexNumber ?? 0, $1.indexNumber ?? 0)
+        }
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.px(16)) {
                 PageTitle(text: playlist.name ?? L("Playlist"))
                 HStack(spacing: Theme.px(8)) {
-                    Button { play(entries) } label: { Label(L("Play"), systemImage: "play.fill") }
+                    Button { play(shown) } label: { Label(L("Play"), systemImage: "play.fill") }
                         .buttonStyle(SoftPillStyle(selected: true))
                     Button { play(entries.shuffled()) } label: { Label(L("Shuffle"), systemImage: "shuffle") }
                         .buttonStyle(SoftPillStyle())
+                    Button { sortAZ.toggle() } label: {
+                        Label(sortAZ ? L("A–Z") : L("Newest first"), systemImage: sortAZ ? "textformat.abc" : "clock")
+                    }
+                    .buttonStyle(SoftPillStyle())
                     Button { confirmDelete = true } label: { Label(L("Delete playlist"), systemImage: "trash") }
                         .buttonStyle(SoftPillStyle())
                 }
@@ -185,11 +204,11 @@ struct PlaylistView: View {
                         .foregroundStyle(Theme.gray400)
                         .pagePadding()
                 }
-                PosterGrid(items: entries)
+                PosterGrid(items: shown)
                     .environment(\.removeFromPlaylist, { entry in Task { await remove(entry) } })
                     // Picked here, a title plays at once in the server's own copy, the rest of the playlist after it.
                     .environment(\.posterTap, { entry in
-                        let rest = Array(entries.drop { $0.id != entry.id }.dropFirst())
+                        let rest = Array(shown.drop { $0.id != entry.id }.dropFirst())
                         choice = VersionChoice(item: entry, startMs: entry.resumeMs, mode: .library, queue: rest)
                     })
             }
