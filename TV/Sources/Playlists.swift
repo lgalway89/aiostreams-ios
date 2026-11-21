@@ -187,6 +187,11 @@ struct PlaylistView: View {
                 }
                 PosterGrid(items: entries)
                     .environment(\.removeFromPlaylist, { entry in Task { await remove(entry) } })
+                    // Picked here, a title plays at once in the server's own copy, the rest of the playlist after it.
+                    .environment(\.posterTap, { entry in
+                        let rest = Array(entries.drop { $0.id != entry.id }.dropFirst())
+                        choice = VersionChoice(item: entry, startMs: entry.resumeMs, mode: .library, queue: rest)
+                    })
             }
         }
         .edgeToEdge()
@@ -203,7 +208,7 @@ struct PlaylistView: View {
     private func play(_ list: [Item]) {
         let playable = list.filter { $0.playable && $0.locationType != "Virtual" }
         guard let first = playable.first else { return }
-        choice = VersionChoice(item: first, startMs: first.resumeMs, queue: Array(playable.dropFirst()))
+        choice = VersionChoice(item: first, startMs: first.resumeMs, mode: .library, queue: Array(playable.dropFirst()))
     }
 
     private func load() async {

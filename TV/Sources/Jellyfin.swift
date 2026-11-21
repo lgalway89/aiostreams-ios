@@ -366,6 +366,11 @@ struct MediaSource: Decodable, Identifiable, Hashable {
 
     /// The web app keys every version by its own id.
     var ownId: String { aiostreams?.id ?? id }
+    /// The server's own copy, from the My Library addon (Radarr/Sonarr files in Jellyfin).
+    var isLibrary: Bool {
+        let text = "\(aiostreams?.name ?? name ?? "")\n\(aiostreams?.description ?? "")"
+        return text.contains("My Library") || text.contains("📁")
+    }
     var label: String { aiostreams?.name ?? name ?? L("Version") }
 }
 

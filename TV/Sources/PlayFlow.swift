@@ -3,6 +3,8 @@ import SwiftUI
 /// How Play picks a version: as the settings say, by listing them, or by starting the first.
 enum PlayMode {
     case usual, list, straight
+    /// The server's own copy (My Library) straight away, the list only where there's none: playlists.
+    case library
 }
 
 /// Something to play: an item, from where it would start. A show plays its next episode.
@@ -28,6 +30,15 @@ enum LastVersions {
     static func set(_ itemId: String, _ source: MediaSource) {
         store(key, itemId, source.ownId)
         if let release = source.aiostreams?.release { store(releasesKey, itemId, release) }
+        store(libraryKey, itemId, source.isLibrary ? "1" : "0")
+    }
+
+    private static let libraryKey = "playback.lastWasLibrary"
+
+    /// Whether this title last played from the server's own copy, which resuming goes back to
+    /// even when that copy's version id has changed since.
+    static func wasLibrary(_ itemId: String) -> Bool {
+        (UserDefaults.standard.dictionary(forKey: libraryKey) as? [String: String])?[itemId] == "1"
     }
 
     /// The version last played: by its id, else (as the web app does since server v2.38) the one
@@ -75,9 +86,10 @@ struct PlayFlow: ViewModifier {
     private func straight(_ choice: VersionChoice) -> Bool {
         switch choice.mode {
         case .list: return false
-        case .straight: return true
+        case .straight, .library: return true
         case .usual:
             return prefs.autoPlayFirst || ((choice.startMs ?? 0) > 0 && LastVersions.get(choice.item.id) != nil)
+                || ((choice.startMs ?? 0) > 0 && LastVersions.wasLibrary(choice.item.id))
         }
     }
 
@@ -178,8 +190,19 @@ struct PlayFlow: ViewModifier {
         defer { finding = nil }
         let info = try? await client.playbackInfo(userId: userId, itemId: choice.item.id)
         let sources = (info?.mediaSources ?? []).filter { $0.aiostreams?.ytId == nil }
-        let last = (choice.startMs ?? 0) > 0 ? LastVersions.find(choice.item.id, in: sources) : nil
-        guard let source = last ?? sources.first else {
+        let library = sources.first(where: \.isLibrary)
+        let resuming = (choice.startMs ?? 0) > 0
+        let last = resuming ? LastVersions.find(choice.item.id, in: sources) : nil
+        // From a playlist: the server's own copy, else the list. Resuming what last played from it: it again.
+        let picked: MediaSource?
+        if choice.mode == .library {
+            picked = library
+        } else if resuming, LastVersions.wasLibrary(choice.item.id), let library {
+            picked = library
+        } else {
+            picked = last ?? sources.first
+        }
+        guard let source = picked else {
             self.choice = VersionChoice(item: choice.item, startMs: choice.startMs, mode: .list)
             return
         }

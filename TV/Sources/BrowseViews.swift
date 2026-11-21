@@ -188,7 +188,20 @@ struct TrailingIconLabel: LabelStyle {
 
 /// A title's poster, 168 × 252, with its name and year under it, as the web app's TV rows show;
 /// with `wide`, a still instead.
+/// Set by a page whose posters play their title rather than open it (a playlist).
+private struct PosterTapKey: EnvironmentKey {
+    static let defaultValue: ((Item) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var posterTap: ((Item) -> Void)? {
+        get { self[PosterTapKey.self] }
+        set { self[PosterTapKey.self] = newValue }
+    }
+}
+
 struct PosterLink: View {
+    @Environment(\.posterTap) private var posterTap
     @Environment(\.cardFocused) private var cardFocused
     @FocusState private var focused: Bool
     @EnvironmentObject private var session: Session
@@ -224,45 +237,54 @@ struct PosterLink: View {
         return stillWide ? client.still(item, height: Int(size.height * 2)) : client.poster(item, height: Int(size.height * 2))
     }
 
+    /// The poster itself, with its unwatched count, watched mark and progress.
+    @ViewBuilder private var face: some View {
+            ZStack(alignment: .topTrailing) {
+                if opened {
+                    CardPreview(item: item, size: size)
+                } else {
+                    RemoteImage(url: imageURL)
+                        .frame(width: size.width, height: size.height)
+                        .opacity(dimmed && !focused ? 0.4 : 1)
+                }
+                if item.isSeries, let left = item.userData?.unplayedItemCount, left > 0, item.userData?.played != true {
+                    Text(String(left))
+                        .font(Theme.font(Theme.xs, .semibold))
+                        .padding(.horizontal, Theme.px(8))
+                        .padding(.vertical, Theme.px(2))
+                        .background(Capsule().fill(Theme.brand500))
+                        .padding(Theme.px(8))
+                }
+                if item.userData?.played == true {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: Theme.px(18)))
+                        .foregroundStyle(.white, Theme.brand500)
+                        .padding(Theme.px(8))
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if let progress = item.userData?.playedPercentage, progress > 0, item.userData?.played != true {
+                    GeometryReader { geometry in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(.white.opacity(0.25))
+                            Rectangle().fill(Theme.brand500).frame(width: geometry.size.width * progress / 100)
+                        }
+                    }
+                    .frame(height: Theme.px(4))
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.px(8), style: .continuous))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.px(8)) {
-            NavigationLink(value: item.isFolder ? Route.library(item) : Route.item(item)) {
-                ZStack(alignment: .topTrailing) {
-                    if opened {
-                        CardPreview(item: item, size: size)
-                    } else {
-                        RemoteImage(url: imageURL)
-                            .frame(width: size.width, height: size.height)
-                            .opacity(dimmed && !focused ? 0.4 : 1)
-                    }
-                    if item.isSeries, let left = item.userData?.unplayedItemCount, left > 0, item.userData?.played != true {
-                        Text(String(left))
-                            .font(Theme.font(Theme.xs, .semibold))
-                            .padding(.horizontal, Theme.px(8))
-                            .padding(.vertical, Theme.px(2))
-                            .background(Capsule().fill(Theme.brand500))
-                            .padding(Theme.px(8))
-                    }
-                    if item.userData?.played == true {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: Theme.px(18)))
-                            .foregroundStyle(.white, Theme.brand500)
-                            .padding(Theme.px(8))
-                    }
+            Group {
+                if let posterTap, !item.isFolder {
+                    Button { posterTap(item) } label: { face }
+                } else {
+                    NavigationLink(value: item.isFolder ? Route.library(item) : Route.item(item)) { face }
                 }
-                .overlay(alignment: .bottom) {
-                    if let progress = item.userData?.playedPercentage, progress > 0, item.userData?.played != true {
-                        GeometryReader { geometry in
-                            ZStack(alignment: .leading) {
-                                Rectangle().fill(.white.opacity(0.25))
-                                Rectangle().fill(Theme.brand500).frame(width: geometry.size.width * progress / 100)
-                            }
-                        }
-                        .frame(height: Theme.px(4))
-                    }
-                }
-                .frame(width: size.width, height: size.height)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.px(8), style: .continuous))
             }
             .buttonStyle(CardStyle())
             .focused($focused)

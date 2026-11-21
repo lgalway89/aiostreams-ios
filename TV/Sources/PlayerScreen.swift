@@ -155,7 +155,9 @@ struct PlayerScreen: View {
         let info = try? await client.playbackInfo(userId: userId, itemId: next.id)
         let sources = (info?.mediaSources ?? []).filter { $0.aiostreams?.ytId == nil }
         let group = current.request.source.aiostreams?.bingeGroup
-        let carried = group.flatMap { group in sources.first { $0.aiostreams?.bingeGroup == group } }
+        // Playing the server's own copy carries on in the next one's own copy.
+        let ownCopy = current.request.source.isLibrary ? sources.first(where: \.isLibrary) : nil
+        let carried = ownCopy ?? group.flatMap { group in sources.first { $0.aiostreams?.bingeGroup == group } }
             ?? (sources.count == 1 || prefs.nextFallbackFirst ? sources.first : nil)
         guard let source = carried else {
             listVersions(next)
