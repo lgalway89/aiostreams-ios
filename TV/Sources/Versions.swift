@@ -230,7 +230,7 @@ private struct VersionCard: View {
                         ForEach(badges, id: \.self) { VersionBadgePill(badge: $0) }
                     }
                 }
-                Text(source.label)
+                folderMarked(source.label, folder: Color(red: 0.99, green: 0.80, blue: 0.13))
                     .font(Theme.font(Theme.base, .medium))
                     .multilineTextAlignment(.leading)
                 if let description = source.aiostreams?.description, !description.isEmpty {

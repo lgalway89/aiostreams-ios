@@ -71,12 +71,23 @@ struct VersionBadges {
     }
 }
 
+/// Text with every 📒 (the server's mark for its own copy, My Library) drawn as a folder symbol in
+/// `folder`, since no yellow folder emoji exists to send.
+func folderMarked(_ text: String, folder: Color) -> Text {
+    let parts = text.components(separatedBy: "📒")
+    var out = Text(parts[0])
+    for part in parts.dropFirst() {
+        out = out + Text(Image(systemName: "folder.fill")).foregroundColor(folder) + Text(part)
+    }
+    return out
+}
+
 /// One badge as a small pill, in its own colours.
 struct VersionBadgePill: View {
     let badge: VersionBadge
 
     var body: some View {
-        Text(badge.label)
+        folderMarked(badge.label, folder: badge.color ?? .white)
             .font(Theme.font(Theme.sm, .semibold))
             .foregroundStyle(badge.color ?? .white)
             .padding(.horizontal, Theme.px(8))
